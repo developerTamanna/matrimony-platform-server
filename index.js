@@ -1,90 +1,128 @@
-const express = require('express');
-const mongo = require('./mongoDB');
-const adminRoutes = require('./adminpath');
+const express = require("express");
+const mongo = require("./mongoDB");
+const adminRoutes = require("./adminpath");
 const userRoutes = require("./userpath");
-const alluserRoutes = require('./alluserpath');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const cookieParser = require('cookie-parser');
+const alluserRoutes = require("./alluserpath");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const cookieParser = require("cookie-parser");
+const OpenAI = require("openai");
 dotenv.config();
 const app = express();
 //today new
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken");
 //next
 const port = process.env.PORT || 3000;
 app.use(express.json());
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: "http://localhost:5173",
     credentials: true,
     allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'x-user',
-      'authorization',
+      "Content-Type",
+      "Authorization",
+      "x-user",
+      "authorization",
     ],
   })
 );
+
+// ai api
+const clients = {
+  gemini: new OpenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/",
+  }),
+};
+
+// model map
+const modelMap = {
+  gemini: "gemini-1.5-flash",
+};
+
 app.use(cookieParser());
 let db;
 (async () => {
   try {
     db = await mongo();
   } catch (err) {
-    console.error('❌ MongoDB connection error:', err);
+    console.error("❌ MongoDB connection error:", err);
   }
 })();
 
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-/*     await client.connect();
+    /*     await client.connect();
     const db = client.db('matrimonyDB'); //database name
     const bioDataCollection = db.collection('bioDatas'); //collection
     const premium = db.collection('premium');
     const favourite = db.collection('favourite');
     await bioDataCollection.createIndex({ biodataId: 1 }, { unique: true }); */
 
-    ///admin path
-    app.use('/admin', adminRoutes);
-    app.use('/user', userRoutes)
-    app.use('/alluser',alluserRoutes)
+    // ai related api
 
-    app.post('/api/auth/login', async (req, res) => {
+    app.post("/api/chat", async (req, res) => {
+      const { model, messages } = req.body;
+
+      if (!model || !clients[model]) {
+        return res.status(400).send({ error: "Invalid or unsupported model." });
+      }
+
+      try {
+        const client = clients[model];
+        const response = await client.chat.completions.create({
+          model: modelMap[model],
+          messages: messages,
+        });
+
+        return res.send(response);
+      } catch (error) {
+        console.error(`${model.toUpperCase()} API Error:`, error.message);
+        return res.status(500).send({ error: "AI response failed." });
+      }
+    });
+
+    ///admin path
+    app.use("/admin", adminRoutes);
+    app.use("/user", userRoutes);
+    app.use("/alluser", alluserRoutes);
+
+    app.post("/api/auth/login", async (req, res) => {
       const { email, name } = req.body;
       if (!email || !name) return res.send({ role: null });
 
       let result = await db
-        .collection('user_role')
+        .collection("user_role")
         .findOne({ role_email: email });
 
       if (!result) {
-        await db.collection('user_role').insertOne({
+        await db.collection("user_role").insertOne({
           role_email: email,
           name: name,
-          role: 'user',
+          role: "user",
         });
-        result = { role: 'user' };
+        result = { role: "user" };
       }
 
       const payload = { name, email, role: result.role };
       const token = jwt.sign(payload, process.env.JWT_SECRET, {
-        expiresIn: '7d',
+        expiresIn: "7d",
       });
-      res.cookie('token', token, {
+      res.cookie("token", token, {
         httpOnly: true,
-        secure: true  ,/* process.env.NODE_ENV === 'production', */
-        sameSite: 'none',
-        path: '/',
+        secure: true /* process.env.NODE_ENV === 'production', */,
+        sameSite: "none",
+        path: "/",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
-      console.log('token', token);
+      console.log("token", token);
 
       res.json({ role: result.role });
     });
 
     // GET /bioDatas?page=1&limit=6
-    app.get('/pagination', async (req, res) => {
+    app.get("/pagination", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
@@ -94,25 +132,25 @@ async function run() {
         const query = {}; // add conditions like { gender: req.query.gender } if needed
 
         const biodatas = await db
-          .collection('bioDatas')
+          .collection("bioDatas")
           .find(query)
           .skip(skip)
           .limit(limit)
           .toArray();
 
-        const count = await db.collection('bioDatas').countDocuments(query);
+        const count = await db.collection("bioDatas").countDocuments(query);
 
         res.send({ biodatas, count });
       } catch (error) {
-        console.error('Pagination Error:', error);
-        res.status(500).send({ message: 'Internal server error' });
+        console.error("Pagination Error:", error);
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
     // add to favourite
 
     // ✅ Corrected backend route
-/*     app.post('/contactRequest', async (req, res) => {
+    /*     app.post('/contactRequest', async (req, res) => {
       try {
         const paymentInfo = req.body; // { biodataId, email, paymentId, status }
         console.log(paymentInfo);
@@ -146,7 +184,7 @@ async function run() {
       }
     }); */
 
-   /*  app.get('/contact-requests', async (req, res) => {
+    /*  app.get('/contact-requests', async (req, res) => {
       try {
         const email = req.query.email;
         console.log('mmmm', email);
@@ -207,7 +245,7 @@ async function run() {
       }
     }); */
 
-  /*   app.post('/favourite', async (req, res) => {
+    /*   app.post('/favourite', async (req, res) => {
       const { email, id } = req.body;
       try {
         console.log(email, id);
@@ -237,7 +275,7 @@ async function run() {
         res.status(500).send({ message: 'Failed to add to favourite' });
       }
     }); */
-/*     app.delete('/favourite/:id', async (req, res) => {
+    /*     app.delete('/favourite/:id', async (req, res) => {
       const { id } = req.params;
       const { email } = req.query;
 
@@ -282,12 +320,12 @@ async function run() {
     }); */
 
     ///this is for home page show 6 primium bio
-    app.get('/getpremium', async (req, res) => {
+    app.get("/getpremium", async (req, res) => {
       try {
         // Step 1: Get all favourites by user
         const premiumusers = await db
-          .collection('user_role')
-          .find({ role: 'premium' })
+          .collection("user_role")
+          .find({ role: "premium" })
           .toArray();
 
         // Step 2: Extract all biodata ObjectIds
@@ -295,7 +333,7 @@ async function run() {
 
         // Step 3: Get all matching biodata entries
         const bioDataList = await db
-          .collection('bioDatas')
+          .collection("bioDatas")
           .find({ contactEmail: { $in: emails } })
           .sort({ createdAt: 1 })
           .limit(6)
@@ -304,14 +342,14 @@ async function run() {
 
         res.send(bioDataList);
       } catch (err) {
-        console.error('❌ Error in /get Premium:', err);
-        res.status(500).send({ message: 'Something went wrong' });
+        console.error("❌ Error in /get Premium:", err);
+        res.status(500).send({ message: "Something went wrong" });
       }
     });
 
     //primiam er jonno
 
-/*     app.post('/makePremium', async (req, res) => {
+    /*     app.post('/makePremium', async (req, res) => {
       const { email, name, biodataId } = req.body;
 
       try {
@@ -343,7 +381,7 @@ async function run() {
     }); */
 
     // POST: create a new bioData
-/*     app.post('/bioDatas', async (req, res) => {
+    /*     app.post('/bioDatas', async (req, res) => {
       try {
         const newBioData = req.body;
         // await db.collection("id_counter").insertOne({ _id: 'biodataIdCounter', seq: 0 });
@@ -386,17 +424,17 @@ async function run() {
     }); */
 
     //get all boi for all bio page
-   app.get('/bioDatas', async (req, res) => {
-          try {
-            const bioData = await db.collection('bioDatas').find().toArray();
-            res.send(bioData);
-          } catch (error) {
-            console.error('Error fetching biodata:', error);
-            res.status(500).send({ message: 'Failed to fetch biodata' });
-          }
+    app.get("/bioDatas", async (req, res) => {
+      try {
+        const bioData = await db.collection("bioDatas").find().toArray();
+        res.send(bioData);
+      } catch (error) {
+        console.error("Error fetching biodata:", error);
+        res.status(500).send({ message: "Failed to fetch biodata" });
+      }
     });
     // update a biodata by _id
-/*     app.put('/bioDatas/:id', async (req, res) => {
+    /*     app.put('/bioDatas/:id', async (req, res) => {
       const { id } = req.params;
       const updatedData = req.body;
 
@@ -418,7 +456,7 @@ async function run() {
     }); */
 
     // ✅ Get biodata by MongoDB _id
-/*     app.get('/bioDatas/:id', async (req, res) => {
+    /*     app.get('/bioDatas/:id', async (req, res) => {
       try {
         const id = req.params.id;
 
@@ -445,7 +483,7 @@ async function run() {
       }
     }); */
 
-/*     app.delete('/bioDatas/:id', async (req, res) => {
+    /*     app.delete('/bioDatas/:id', async (req, res) => {
       const { id } = req.params;
       const result = await bioDataCollection.deleteOne({
         _id: new ObjectId(id),
@@ -461,16 +499,16 @@ async function run() {
 
     //
     // Backend: Stripe payment intent
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-    app.post('/create-payment-intent', async (req, res) => {
+    app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
 
       try {
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
-          currency: 'usd',
-          payment_method_types: ['card'],
+          currency: "usd",
+          payment_method_types: ["card"],
         });
 
         res.send({ clientSecret: paymentIntent.client_secret });
@@ -482,7 +520,7 @@ async function run() {
     //success stories apis
 
     // ✅ POST: Submit Got Married Success Story
-/*     app.post('/success-stories', async (req, res) => {
+    /*     app.post('/success-stories', async (req, res) => {
       try {
         const story = req.body;
 
@@ -511,53 +549,56 @@ async function run() {
     }); */
 
     // ✅ GET: Fetch All Success Stories
-    app.get('/success-stories', async (req, res) => {
+    app.get("/success-stories", async (req, res) => {
       try {
         const stories = await db
-          .collection('successStories')
+          .collection("successStories")
           .find()
           .sort({ createdAt: -1 }) // latest first
           .toArray();
 
         res.send(stories);
       } catch (error) {
-        console.error('❌ Failed to fetch success stories:', error);
-        res.status(500).send({ message: 'Internal server error' });
+        console.error("❌ Failed to fetch success stories:", error);
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
-    app.get('/count-up',  async (req, res) => {
+    app.get("/count-up", async (req, res) => {
       try {
-        const result = await db.collection('bioDatas').find({}).toArray();
+        const result = await db.collection("bioDatas").find({}).toArray();
         const total = result.length;
-        const result1 = result.filter((v) => v.biodataType === 'Male');
+        const result1 = result.filter((v) => v.biodataType === "Male");
         const male = result1.length;
         const female = total - male;
         const result2 = await db
-          .collection('user_role')
+          .collection("user_role")
           .find({
-            role: 'premium',
+            role: "premium",
           })
           .toArray();
         const premium = result2.length;
         const result3 = await db
-          .collection('contactRequests')
+          .collection("contactRequests")
           .find({})
           .toArray();
         const totalrevenue = result3.length * 5;
-        const result4 = await db.collection('successStories').find({}).toArray();
-        const successStories=result4.length
+        const result4 = await db
+          .collection("successStories")
+          .find({})
+          .toArray();
+        const successStories = result4.length;
         res.status(201).json({
           male: male,
           female: female,
           totalbio: total,
           totalrevenue: totalrevenue,
           premium: premium,
-          successStories: successStories
+          successStories: successStories,
         });
       } catch (err) {
-        console.error('❌ Error submitting story:', err);
-        res.status(500).json({ message: 'Internal server error' });
+        console.error("❌ Error submitting story:", err);
+        res.status(500).json({ message: "Internal server error" });
       }
     });
 
@@ -728,7 +769,7 @@ async function run() {
     //end api creation
 
     // Send a ping to confirm a successful connection
-/*     await client.db('admin').command({ ping: 1 });
+    /*     await client.db('admin').command({ ping: 1 });
     console.log(
       'Pinged your deployment. You successfully connected to MongoDB!'
     ); */
@@ -740,12 +781,12 @@ async function run() {
 run().catch(console.dir);
 
 //simple route
-app.get('/', (req, res) => {
-  res.send('Matrimony  server is running');
+app.get("/", (req, res) => {
+  res.send("Matrimony  server is running");
 });
 
 //start the server
- app.listen(port, () => {
+app.listen(port, () => {
   console.log(`server is listening on port ${port}`);
 });
-module.exports = app
+module.exports = app;
