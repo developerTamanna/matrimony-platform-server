@@ -60,29 +60,6 @@ async function run() {
     const favourite = db.collection('favourite');
     await bioDataCollection.createIndex({ biodataId: 1 }, { unique: true }); */
 
-    // ai related api
-
-    app.post("/api/chat", async (req, res) => {
-      const { model, messages } = req.body;
-
-      if (!model || !clients[model]) {
-        return res.status(400).send({ error: "Invalid or unsupported model." });
-      }
-
-      try {
-        const client = clients[model];
-        const response = await client.chat.completions.create({
-          model: modelMap[model],
-          messages: messages,
-        });
-
-        return res.send(response);
-      } catch (error) {
-        console.error(`${model.toUpperCase()} API Error:`, error.message);
-        return res.status(500).send({ error: "AI response failed." });
-      }
-    });
-
     ///admin path
     app.use("/admin", adminRoutes);
     app.use("/user", userRoutes);
